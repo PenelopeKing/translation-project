@@ -1,5 +1,5 @@
 import torch
-from nltk.tokenize import word_tokenize  # Ensure NLTK is installed
+from nltk.tokenize import word_tokenize  
 import torch
 import argparse
 from etl import * 
@@ -15,7 +15,6 @@ random.seed(SEED)
 torch.manual_seed(SEED)  
 if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)   
-
 
 def translate_sentence(sentence, model_name = 'CNN_Seq2Seq', save_dir = "saved"):
     """

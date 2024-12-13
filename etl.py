@@ -79,7 +79,6 @@ def load_and_process_data(max_vocab = 5000, subset_train = 1.0, subset_test = 1.
     test_data.columns = ['ENG', 'JPN']
     train_data.columns = ['ENG', 'JPN']
     val_data.columns = ['ENG', 'JPN']
-
     # tokenize
     test_data['ENG'] = test_data['ENG'].apply(word_tokenize)
     test_data['JPN'] = test_data['JPN'].apply(word_tokenize)
@@ -87,7 +86,6 @@ def load_and_process_data(max_vocab = 5000, subset_train = 1.0, subset_test = 1.
     train_data['JPN'] = train_data['JPN'].apply(word_tokenize)
     val_data['ENG'] = val_data['ENG'].apply(word_tokenize)
     val_data['JPN'] = val_data['JPN'].apply(word_tokenize)
-
     # get sentence lengths
     all_lengths = pd.concat([
         train_data['ENG'].apply(len),
@@ -120,7 +118,6 @@ def load_and_process_data(max_vocab = 5000, subset_train = 1.0, subset_test = 1.
     val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
     print("Vocabularies saved successfully!")
     return train_loader, test_loader, val_loader, eng_vocab, jpn_vocab
-
 ### DATA PREPROCESSING END ###
 
 # train and test
@@ -150,7 +147,6 @@ def train_model(model, train_loader, optimizer, criterion, device, padding_idx=0
     avg_accuracy = total_correct / total_samples if total_samples > 0 else 0
     return avg_loss, avg_accuracy
 
-
 def evaluate_model(model, test_loader, criterion, device, padding_idx=0, end_token_idx = 2):
     """
     Evaluates the model on a test dataset while skipping padding tokens in accuracy calculation.
@@ -177,7 +173,6 @@ def evaluate_model(model, test_loader, criterion, device, padding_idx=0, end_tok
     avg_loss = total_loss / len(test_loader)
     avg_accuracy = total_correct / total_samples if total_samples > 0 else 0
     return avg_loss, avg_accuracy
-
 
 ### CLASS DEFINITIONS ###
 # Dataset Class
@@ -254,12 +249,11 @@ class TransformerSeq2Seq(nn.Module):
         self.dropout = dropout
         self.embed_dim = embed_dim
     def forward(self, src, tgt):
-        src_embedded = self.embedding_src(src).permute(1, 0, 2)  # Shape: (seq_len, batch, embed_dim)
-        tgt_embedded = self.embedding_tgt(tgt).permute(1, 0, 2)  # Shape: (seq_len, batch, embed_dim)
+        src_embedded = self.embedding_src(src).permute(1, 0, 2)  
+        tgt_embedded = self.embedding_tgt(tgt).permute(1, 0, 2)  
         tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt_embedded.size(0)).to(src.device)
         output = self.transformer(src_embedded, tgt_embedded, tgt_mask=tgt_mask)
-        return self.fc_out(output.permute(1, 0, 2))  # Shape: (batch, seq_len, output_dim)
-
+        return self.fc_out(output.permute(1, 0, 2))  
 
 class GRUSeq2Seq(nn.Module):
     def __init__(self, input_dim, output_dim, embed_dim, hidden_dim, n_layers, dropout):
@@ -290,18 +284,12 @@ class GRUSeq2Seq(nn.Module):
         decoder_outputs, _ = self.decoder(tgt_embedded, hidden)
         outputs = self.fc_out(decoder_outputs) 
         return outputs
-
-
 ### END OF CLASS DEFINITIONS ###
-
 
 ### SAVING AND LOADING MODELS ###
 def save_model_and_params(models, save_dir):
     """
     Save models and their parameters.
-    Args:
-        models (dict): Dictionary containing model names and model objects.
-        save_dir (str): Directory to save the models and parameters.
     """
     os.makedirs(save_dir, exist_ok=True)
     for name, model in models.items():
@@ -325,7 +313,6 @@ def save_model_and_params(models, save_dir):
                 "num_channels": model.num_channels
             }
         elif isinstance(model, GRUSeq2Seq):
-            # input_dim, output_dim, embed_dim, hidden_dim, n_layers, dropout
             params = {
                 "model_type": "GRU",
                 "input_dim": model.input_dim,
@@ -353,19 +340,18 @@ def save_model_and_params(models, save_dir):
         # save model weights
         weights_path = os.path.join(save_dir, f"{name}_weights.pt")
         torch.save(model.state_dict(), weights_path)
-
         print(f"Saved {name} to {params_path} and {weights_path}.")
 
 def load_model_params(params_path):
     """
-    Function to load model parameters
+    loads model's params, helper func
     """
     with open(params_path, 'r') as f:
         return json.load(f)
 
 def load_model(model_name, save_dir, device):
     """
-    Function to load a model dynamically based on its parameters
+    loads a model
     """
     params_path = os.path.join(save_dir, f"{model_name}_params.json")
     weights_path = os.path.join(save_dir, f"{model_name}_weights.pt")
@@ -411,13 +397,12 @@ def load_model(model_name, save_dir, device):
     model.to(device)
     print(f"Loaded {model_name} ({params['model_type']}) from {weights_path}.")
     return model
-
 ### END OF SAVING AND LOADING MODELS ###
 
 ### TRAIN ALL MODELS ###
 def train_all_models(eng_vocab, jpn_vocab, train_data, test_data):
     """ 
-    Trains all models
+    Trains all models like in testing.ipynb
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     train_dataset = TranslationDataset(train_data['ENG'].tolist(), train_data['JPN'].tolist())
@@ -441,7 +426,7 @@ def train_all_models(eng_vocab, jpn_vocab, train_data, test_data):
         optimizer = optim.Adam(model.parameters(), lr = 0.001, weight_decay = 1e-5)
         criterion = nn.CrossEntropyLoss(ignore_index=SPECIAL_TOKENS['<PAD>'])
         print(f"Training {name}...")
-        for epoch in range(EPOCHS):  # Adjust number of epochs
+        for epoch in range(EPOCHS):  
             train_loss, train_accuracy = train_model(model, train_loader, optimizer, criterion, device)
             if epoch % 10 == 0:
                 print(f"Epoch {epoch + 1}: Train Loss = {train_loss:.4f}, Train Accuracy = {train_accuracy:.4f}")
