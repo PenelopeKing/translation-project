@@ -17,7 +17,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)  # Seed for GPU computations
 
 
-def translate_sentence(sentence, model_name = 'CNN_Seq2Seq'):
+def translate_sentence(sentence, model_name = 'CNN_Seq2Seq', save_dir = "saved"):
     """
     Translates a sentence using the given model.
     Args:
@@ -27,7 +27,6 @@ def translate_sentence(sentence, model_name = 'CNN_Seq2Seq'):
         str: Translated sentence.
     """
     # load in the model
-    save_dir = "saved"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = load_model(model_name, save_dir, device)
     # Ensure the model is in evaluation mode

@@ -68,62 +68,73 @@ def load_vocab(path):
         return json.load(f)
     
 # Load in data
-def load_and_process_data():
+def load_and_process_data(max_vocab = 5000, subset_train = 1.0, subset_test = 1.0, subset_val = 1.0):
     """ 
     Gets data and saves preprocessed eng_vocab and jpn_vocab into files in directory /saved/
     """
     test_data = pd.read_csv('data_jesc/test', sep='\t')
     train_data = pd.read_csv('data_jesc/train', sep='\t')
-    print(test_data.shape)
-    print(train_data.shape)
+    val_data = pd.read_csv('data_jesc/dev', sep = '\t')
 
-    # Shuffle and take X-% of the data
-    train_data = train_data.sample(frac=1, random_state=42).head(int(train_data.shape[0] * 0.01))
-    test_data = test_data.sample(frac=1, random_state=42).head(int(test_data.shape[0] * 0.30))
-    print(test_data.shape)
-    print(train_data.shape)
+    print('Loading Data')
+    train_data = train_data.sample(frac=1, random_state=42).head(int(train_data.shape[0] * subset_train))
+    test_data = test_data.sample(frac=1, random_state=42).head(int(test_data.shape[0] * subset_test))
+    val_data = val_data.sample(frac=1, random_state=42).head(int(val_data.shape[0] * subset_val))
 
     # Adjust columns
     test_data.columns = ['ENG', 'JPN']
     train_data.columns = ['ENG', 'JPN']
+    val_data.columns = ['ENG', 'JPN']
 
     # Tokenize English and Japanese sentences
     test_data['ENG'] = test_data['ENG'].apply(word_tokenize)
     test_data['JPN'] = test_data['JPN'].apply(word_tokenize)
     train_data['ENG'] = train_data['ENG'].apply(word_tokenize)
     train_data['JPN'] = train_data['JPN'].apply(word_tokenize)
+    val_data['ENG'] = val_data['ENG'].apply(word_tokenize)
+    val_data['JPN'] = val_data['JPN'].apply(word_tokenize)
 
     # Analyze sentence lengths
     all_lengths = pd.concat([
         train_data['ENG'].apply(len),
         train_data['JPN'].apply(len),
         test_data['ENG'].apply(len),
-        test_data['JPN'].apply(len)
+        test_data['JPN'].apply(len),
+        val_data['ENG'].apply(len),
+        val_data['JPN'].apply(len)
+
     ])
 
     # Choose 95th percentile for MAX_LEN 
     MAX_LEN = int(all_lengths.quantile(0.95))
-    eng_vocab = build_vocab(train_data['ENG'], SPECIAL_TOKENS, max_vocab_size=5000)
-    jpn_vocab = build_vocab(train_data['JPN'], SPECIAL_TOKENS, max_vocab_size=5000)
+    eng_vocab = build_vocab(train_data['ENG'], SPECIAL_TOKENS, max_vocab_size=max_vocab)
+    jpn_vocab = build_vocab(train_data['JPN'], SPECIAL_TOKENS, max_vocab_size=max_vocab)
     # Preprocess data
     train_data['ENG'] = train_data['ENG'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, eng_vocab), MAX_LEN))
     train_data['JPN'] = train_data['JPN'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, jpn_vocab), MAX_LEN))
     test_data['ENG'] = test_data['ENG'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, eng_vocab), MAX_LEN))
     test_data['JPN'] = test_data['JPN'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, jpn_vocab), MAX_LEN))
+    val_data['ENG'] = val_data['ENG'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, eng_vocab), MAX_LEN))
+    val_data['JPN'] = val_data['JPN'].apply(lambda x: pad_sequence(safe_tokens_to_indices(x, jpn_vocab), MAX_LEN))
 
     # Save English and Japanese vocabularies
     save_vocab(eng_vocab, 'saved/eng_vocab.json')
     save_vocab(jpn_vocab, 'saved/jpn_vocab.json')
 
+    train_dataset = TranslationDataset(train_data['ENG'].tolist(), train_data['JPN'].tolist())
+    test_dataset = TranslationDataset(test_data['ENG'].tolist(), test_data['JPN'].tolist())
+    val_dataset = TranslationDataset(val_data['ENG'].tolist(), val_data['JPN'].tolist())
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
+
     print("Vocabularies saved successfully!")
 
-    return train_data, test_data, eng_vocab, jpn_vocab
-
+    return train_loader, test_loader, val_loader, eng_vocab, jpn_vocab
 
 
 # train and test
-def train_model(model, train_loader, optimizer, criterion, device):
-    """Trains one models"""
+def train_model(model, train_loader, optimizer, criterion, device, padding_idx=0):
     model.train()
     total_loss = 0
     total_correct = 0
@@ -132,31 +143,40 @@ def train_model(model, train_loader, optimizer, criterion, device):
     for src, tgt in train_loader:
         src, tgt = src.to(device), tgt.to(device)
         optimizer.zero_grad()
-        output = model(src, tgt[:, :-1]) # predict exclude last token
-        # align dimensions for loss calculation
+
+        # Forward pass
+        output = model(src, tgt[:, :-1])  # Predict target sequence excluding the last token
+
+        # Align dimensions for loss calculation
         if output.size(1) != tgt[:, 1:].size(1):
             min_seq_len = min(output.size(1), tgt[:, 1:].size(1))
             output = output[:, :min_seq_len, :]
             tgt = tgt[:, :min_seq_len + 1]
-        # get loss
-        loss = criterion(output.reshape(-1, output.shape[-1]), tgt[:, 1:].reshape(-1))  # Exclude first token from target
+
+        # Compute loss
+        loss = criterion(output.reshape(-1, output.shape[-1]), tgt[:, 1:].reshape(-1))
         loss.backward()
         optimizer.step()
-        # Calculate acc
+
+        # Calculate accuracy while ignoring padding tokens
         preds = output.argmax(dim=-1)  # Get the predicted token indices
-        correct = (preds == tgt[:, 1:]).float()  # Compare predictions to target tokens (shifted by 1)
+        mask = tgt[:, 1:] != padding_idx  # Mask to ignore padding tokens
+        correct = ((preds == tgt[:, 1:]) & mask).float()  # Compare only non-padding tokens
         total_correct += correct.sum().item()
-        total_samples += tgt[:, 1:].numel()  # Total number of target tokens
+        total_samples += mask.sum().item()  # Only count non-padding tokens
+
+        # Accumulate total loss
         total_loss += loss.item()
-    # Return avg acc and loss
+
+    # Calculate averages
     avg_loss = total_loss / len(train_loader)
-    avg_accuracy = total_correct / total_samples
+    avg_accuracy = total_correct / total_samples if total_samples > 0 else 0
     return avg_loss, avg_accuracy
 
 
-def evaluate_model(model, test_loader, criterion, device):
+def evaluate_model(model, test_loader, criterion, device, padding_idx=0, end_token_idx = 2):
     """
-    Tests model performance based on test_loader
+    Evaluates the model on a test dataset while skipping padding tokens in accuracy calculation.
     """
     model.eval()
     total_loss = 0
@@ -178,18 +198,19 @@ def evaluate_model(model, test_loader, criterion, device):
             
             # Compute loss
             loss = criterion(output.reshape(-1, output.shape[-1]), tgt[:, 1:].reshape(-1))
-
-            # Calculate accuracy
-            preds = output.argmax(dim=-1)  # Get the predicted token indices
-            correct = (preds == tgt[:, 1:]).float()  # Compare predictions to target tokens (shifted by 1)
-            total_correct += correct.sum().item()
-            total_samples += tgt[:, 1:].numel()  # Total number of target tokens
-
             total_loss += loss.item()
+            
+            # Calculate accuracy while ignoring padding tokens
+            preds = output.argmax(dim=-1)  # Get the predicted token indices
+            mask = (tgt[:, 1:] != padding_idx) & (tgt[:, 1:] != end_token_idx)  # Mask to ignore padding tokens and end tokens
+            correct = ((preds == tgt[:, 1:]) & mask).float()  # Compare only non-padding tokens
+            total_correct += correct.sum().item()
+            total_samples += mask.sum().item()  # Only count non-padding tokens
 
     avg_loss = total_loss / len(test_loader)
-    avg_accuracy = total_correct / total_samples
+    avg_accuracy = total_correct / total_samples if total_samples > 0 else 0
     return avg_loss, avg_accuracy
+
 
 ### CLASS DEFINITIONS ###
 # Dataset Class
@@ -360,7 +381,7 @@ def save_model_and_params(models, save_dir):
                 "embed_dim": model.embed_dim,
                 "hidden_dim": model.hidden_dim,
                 "n_layers": model.n_layers,
-                "dropout": model.dropout
+                "dropout": model.dropout.p if isinstance(model.dropout, torch.nn.Dropout) else model.dropout
             }
 
         elif isinstance(model, LSTMSeq2Seq):
