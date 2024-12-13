@@ -89,5 +89,8 @@ Contains the translation function using a saved model and an input English sente
 ### testing.ipynb
 Shows the code for training and testing. Here you can see the models I trained and tested (including train-test accuracies) and how to also use the code in a .ipynb setting.
 
+---
+Sourcing:
+- I used ChatGPT to write help me write some of `translate.py`, my evaluation method, and some of my TransformerSeq2Seq model forward method when I ran into complications in training. Also to help me load the saved model JSONs into an object in code-> specifically this line of code: model.load_state_dict(torch.load(weights_path, map_location=device)).
 
 
