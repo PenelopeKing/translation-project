@@ -273,7 +273,6 @@ class GRUSeq2Seq(nn.Module):
         self.decoder = nn.GRU(embed_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
-
     def forward(self, src, tgt):
         """
         Forward pass for GRU-based Seq2Seq model.
@@ -284,6 +283,7 @@ class GRUSeq2Seq(nn.Module):
         decoder_outputs, _ = self.decoder(tgt_embedded, hidden)
         outputs = self.fc_out(decoder_outputs) 
         return outputs
+    
 ### END OF CLASS DEFINITIONS ###
 
 ### SAVING AND LOADING MODELS ###
